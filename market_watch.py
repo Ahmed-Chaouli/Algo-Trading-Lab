@@ -1,43 +1,40 @@
 import yfinance as yf
 import time
+import requests  # تم التصحيح هنا
 from datetime import datetime
+import config
 
-# دالة لجلب السعر (نفس السابقة)
-def get_latest_price(symbol):
+def send_telegram_message(msg):
     try:
-        ticker = yf.Ticker(symbol)
-        price = ticker.fast_info['last_price']
-        return round(price, 2)
+        url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage"
+        params = {"chat_id": config.CHAT_ID, "text": msg}
+        requests.get(url, params=params)
+        print("✅ [Telegram] تم إرسال الرسالة بنجاح!")
+    except Exception as e:
+        print(f"❌ فشل الإرسال: {e}")
+
+def get_price(symbol):
+    try:
+        return round(yf.Ticker(symbol).fast_info['last_price'], 2)
     except:
         return 0.0
 
-print("🎯 نظام القناص (Sniper Bot) جاهز للعمل...")
-print("-" * 40)
+print("🚀 قناص التليجرام جاهز...")
+symbol = "BTC-USD"
+current = get_price(symbol)
+print(f"💰 السعر الحالي للبيتكوين: ${current}")
 
-# 1. نطلب من المستخدم تحديد الهدف
-target_symbol = "BTC-USD"  # سنركز على البيتكوين لأنه يعمل الآن
-print(f"السعر الحالي للبيتكوين هو: ${get_latest_price(target_symbol)}")
+# نضع هدفاً سهلاً للتجربة (أعلى من السعر الحالي)
+target = float(input("أدخل سعراً للتنبيه (ضع سعراً أعلى من الحالي لتجرب فوراً): "))
 
-target_price = float(input("أدخل السعر الذي تريد الشراء عنده (Target Price): "))
-print(f"✅ تم ضبط الهدف عند ${target_price}. جاري المراقبة...")
-print("-" * 40)
-
-# 2. حلقة المراقبة الذكية
 while True:
-    current_price = get_latest_price(target_symbol)
+    price = get_price(symbol)
     now = datetime.now().strftime("%H:%M:%S")
+    print(f"⏳ {now} | BTC: ${price} | الهدف: {target}")
     
-    # الفرق بين السعر الحالي والهدف
-    diff = current_price - target_price
+    if price <= target:
+        message = f"🚨 تنبيه عاجل!\n\nالسعر وصل: ${price}\nالوقت: {now}\n\nتحرك الآن!"
+        send_telegram_message(message)
+        break
     
-    if current_price <= target_price:
-        # 🚨 تحقق الشرط! (السعر نزل إلى هدفك أو أقل)
-        print(f"\n🔥🔥 [ALARM] {now} | السعر وصل للهدف! (${current_price})")
-        print("🚀 BUY! BUY! BUY!")
-        break # نوقف البرنامج لأننا اصطدنا الفرصة
-        
-    else:
-        # لم يتحقق الشرط بعد
-        print(f"👀 {now} | BTC: ${current_price} | ما زال بعيداً بـ ${round(diff, 2)}")
-    
-    time.sleep(3) # تحديث كل 3 ثواني
+    time.sleep(3)
