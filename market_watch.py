@@ -1,8 +1,18 @@
 import yfinance as yf
 import time
 import requests
-import pandas as pd  # مكتبة تحليل البيانات
+import pandas as pd
+from datetime import datetime
 import config
+
+# --- إعدادات التحكم ---
+SYMBOL = "BTC-USD"      # العملة
+CHECK_INTERVAL = 60     # فحص كل دقيقة
+COOLDOWN_MINUTES = 30   # لا تكرر التنبيه لنفس الحالة قبل 30 دقيقة
+
+# متغيرات لتخزين وقت آخر تنبيه
+last_buy_alert = 0
+last_sell_alert = 0
 
 def send_telegram_message(msg):
     try:
@@ -15,43 +25,48 @@ def send_telegram_message(msg):
 
 def calculate_rsi(symbol, period=14):
     try:
-        # جلب بيانات آخر 100 شمعة (ساعة)
         ticker = yf.Ticker(symbol)
-        data = ticker.history(period="5d", interval="1h") # شمعة كل ساعة
+        data = ticker.history(period="5d", interval="1h")
+        if data.empty: return 50, 0
         
-        if data.empty: return 50
-        
-        # معادلة RSI الرياضية
         delta = data['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
         
         rs = gain / loss
         rsi = 100 - (100 / (1 + rs))
-        
         return round(rsi.iloc[-1], 2), round(data['Close'].iloc[-1], 2)
-    except Exception as e:
-        print(f"⚠️ خطأ في الحساب: {e}")
+    except:
         return 50, 0
 
-print("🚀 قناص RSI الذكي يعمل...")
-symbol = "BTC-USD"
+print(f"🚀 القناص الصامت يعمل... (تنبيه كل {COOLDOWN_MINUTES} دقيقة)")
 
 while True:
+    rsi, price = calculate_rsi(SYMBOL)
+    current_time = time.time()
     
-    rsi, price = calculate_rsi(symbol)
-    status = "محايد 😐"
-    
+    # 🟢 استراتيجية الشراء (RSI < 30)
     if rsi <= 30:
-        status = "فرصة شراء قوية 🟢"
-        msg = f"🚨 تنبيه شراء!\n\nالعملة: {symbol}\nالسعر: ${price}\nRSI: {rsi}\nالوضع: منطقة تشبع بيعي (Oversold)"
-        send_telegram_message(msg)
-    
-    elif rsi >= 70:
-        status = "فرصة بيع (خطر) 🔴"
-        msg = f"🚨 تنبيه بيع!\n\nالعملة: {symbol}\nالسعر: ${price}\nRSI: {rsi}\nالوضع: منطقة تشبع شرائي (Overbought)"
-        send_telegram_message(msg)
+        # هل مر وقت كافٍ منذ آخر تنبيه؟
+        if (current_time - last_buy_alert) > (COOLDOWN_MINUTES * 60):
+            msg = f"🔥 فرصة شراء قوية!\n\nالعملة: {SYMBOL}\nالسعر: ${price}\nRSI: {rsi}\n\nسأصمت لمدة {COOLDOWN_MINUTES} دقيقة."
+            send_telegram_message(msg)
+            last_buy_alert = current_time # تحديث وقت التنبيه
+            print(f"🔔 تم إرسال تنبيه شراء (RSI: {rsi})")
+        else:
+            print(f"⏳ فرصة شراء مستمرة (RSI: {rsi}) - في وضع الصمت...")
 
-    print(f"📉 BTC: ${price} | RSI: {rsi} | الحالة: {status}")
+    # 🔴 استراتيجية البيع (RSI > 70)
+    elif rsi >= 70:
+        if (current_time - last_sell_alert) > (COOLDOWN_MINUTES * 60):
+            msg = f"⚠️ خروج / بيع!\n\nالعملة: {SYMBOL}\nالسعر: ${price}\nRSI: {rsi}\n\nسأصمت لمدة {COOLDOWN_MINUTES} دقيقة."
+            send_telegram_message(msg)
+            last_sell_alert = current_time
+            print(f"🔔 تم إرسال تنبيه بيع (RSI: {rsi})")
+        else:
+            print(f"⏳ تشبع شرائي مستمر (RSI: {rsi}) - في وضع الصمت...")
+
+    else:
+        print(f"📉 {datetime.now().strftime('%H:%M')} | {SYMBOL}: ${price} | RSI: {rsi} (محايد)")
     
-    time.sleep(60) # فحص كل دقيقة
+    time.sleep(CHECK_INTERVAL)
