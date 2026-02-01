@@ -1,7 +1,7 @@
 import yfinance as yf
 import time
-import requests  # تم التصحيح هنا
-from datetime import datetime
+import requests
+import pandas as pd  # مكتبة تحليل البيانات
 import config
 
 def send_telegram_message(msg):
@@ -9,32 +9,49 @@ def send_telegram_message(msg):
         url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage"
         params = {"chat_id": config.CHAT_ID, "text": msg}
         requests.get(url, params=params)
-        print("✅ [Telegram] تم إرسال الرسالة بنجاح!")
+        print("✅ [Telegram] تم الإرسال.")
     except Exception as e:
         print(f"❌ فشل الإرسال: {e}")
 
-def get_price(symbol):
+def calculate_rsi(symbol, period=14):
     try:
-        return round(yf.Ticker(symbol).fast_info['last_price'], 2)
-    except:
-        return 0.0
+        # جلب بيانات آخر 100 شمعة (ساعة)
+        ticker = yf.Ticker(symbol)
+        data = ticker.history(period="5d", interval="1h") # شمعة كل ساعة
+        
+        if data.empty: return 50
+        
+        # معادلة RSI الرياضية
+        delta = data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        return round(rsi.iloc[-1], 2), round(data['Close'].iloc[-1], 2)
+    except Exception as e:
+        print(f"⚠️ خطأ في الحساب: {e}")
+        return 50, 0
 
-print("🚀 قناص التليجرام جاهز...")
+print("🚀 قناص RSI الذكي يعمل...")
 symbol = "BTC-USD"
-current = get_price(symbol)
-print(f"💰 السعر الحالي للبيتكوين: ${current}")
-
-# نضع هدفاً سهلاً للتجربة (أعلى من السعر الحالي)
-target = float(input("أدخل سعراً للتنبيه (ضع سعراً أعلى من الحالي لتجرب فوراً): "))
 
 while True:
-    price = get_price(symbol)
-    now = datetime.now().strftime("%H:%M:%S")
-    print(f"⏳ {now} | BTC: ${price} | الهدف: {target}")
     
-    if price <= target:
-        message = f"🚨 تنبيه عاجل!\n\nالسعر وصل: ${price}\nالوقت: {now}\n\nتحرك الآن!"
-        send_telegram_message(message)
-        break
+    rsi, price = calculate_rsi(symbol)
+    status = "محايد 😐"
     
-    time.sleep(3)
+    if rsi <= 30:
+        status = "فرصة شراء قوية 🟢"
+        msg = f"🚨 تنبيه شراء!\n\nالعملة: {symbol}\nالسعر: ${price}\nRSI: {rsi}\nالوضع: منطقة تشبع بيعي (Oversold)"
+        send_telegram_message(msg)
+    
+    elif rsi >= 70:
+        status = "فرصة بيع (خطر) 🔴"
+        msg = f"🚨 تنبيه بيع!\n\nالعملة: {symbol}\nالسعر: ${price}\nRSI: {rsi}\nالوضع: منطقة تشبع شرائي (Overbought)"
+        send_telegram_message(msg)
+
+    print(f"📉 BTC: ${price} | RSI: {rsi} | الحالة: {status}")
+    
+    time.sleep(60) # فحص كل دقيقة
